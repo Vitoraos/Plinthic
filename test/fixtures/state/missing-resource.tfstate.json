@@ -1,0 +1,16 @@
+{
+  "version": 4,
+  "terraform_version": "1.7.0",
+  "resources": [
+    {
+      "module": "",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "unrelated",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        { "index_key": null, "attributes": {} }
+      ]
+    }
+  ]
+}
