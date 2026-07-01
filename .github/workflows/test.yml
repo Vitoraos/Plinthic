@@ -19,6 +19,9 @@ jobs:
       - name: Download dependencies
         run: go mod tidy
 
+      - name: Generate fixtures
+        run: go run ./test/fixtures/gen
+
       - name: Build
         run: go build ./...
 
