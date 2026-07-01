@@ -35,36 +35,24 @@ func panicTestHarness() (result ParseFileResult) {
 	panic("forced panic for test")
 }
 
-func TestResolveCollectionInstances_NotACollection(t *testing.T) {
+func TestResolveCollectionInstancesForReview_NotACollection(t *testing.T) {
 	rb := ResourceBlock{Iterator: ""}
-	res := ResolveCollectionInstances(rb, nil, "")
+	res := ResolveCollectionInstancesForReview(rb, nil)
 	if res.IsCollection {
 		t.Error("expected IsCollection=false when Iterator is empty")
 	}
 }
 
-func TestResolveCollectionInstances_LiteralCount(t *testing.T) {
+func TestResolveCollectionInstancesForReview_LiteralCount(t *testing.T) {
 	path := filepath.Join(fixturesDir(t), "eks-like", "environments", "dev", "main.tf")
 	body := parseBodyForTest(t, path)
+	block := findResourceBlock(t, body, "task_roles")
 
-	var taskRolesBlock *hclsyntax.Block
-	for _, b := range body.Blocks {
-		if b.Type == "resource" && len(b.Labels) == 2 && b.Labels[1] == "task_roles" {
-			taskRolesBlock = b
-		}
-	}
-	if taskRolesBlock == nil {
-		t.Fatal("aws_iam_role.task_roles block not found in fixture")
-	}
+	rb := ResourceBlock{Iterator: "count", File: path, Line: block.OpenBraceRange.Start.Line}
+	res := ResolveCollectionInstancesForReview(rb, block.Body)
 
-	rb := ResourceBlock{Iterator: "count", File: path, Line: taskRolesBlock.OpenBraceRange.Start.Line}
-	res := ResolveCollectionInstances(rb, taskRolesBlock.Body, "")
-
-	if !res.IsCollection {
-		t.Fatal("expected IsCollection=true")
-	}
-	if res.Source != SourceStaticLiteral {
-		t.Errorf("got source %s, want %s", res.Source, SourceStaticLiteral)
+	if !res.IsCollection || res.Source != SourceStaticLiteral {
+		t.Fatalf("got IsCollection=%v Source=%s, want true/%s", res.IsCollection, res.Source, SourceStaticLiteral)
 	}
 	want := []string{"0", "1", "2"}
 	if len(res.Instances) != len(want) {
@@ -77,22 +65,13 @@ func TestResolveCollectionInstances_LiteralCount(t *testing.T) {
 	}
 }
 
-func TestResolveCollectionInstances_LiteralForEachObject(t *testing.T) {
+func TestResolveCollectionInstancesForReview_LiteralForEachObject(t *testing.T) {
 	path := filepath.Join(fixturesDir(t), "eks-like", "environments", "dev", "main.tf")
 	body := parseBodyForTest(t, path)
+	block := findResourceBlock(t, body, "workers")
 
-	var workersBlock *hclsyntax.Block
-	for _, b := range body.Blocks {
-		if b.Type == "resource" && len(b.Labels) == 2 && b.Labels[1] == "workers" {
-			workersBlock = b
-		}
-	}
-	if workersBlock == nil {
-		t.Fatal("aws_ecs_service.workers block not found in fixture")
-	}
-
-	rb := ResourceBlock{Iterator: "for_each", File: path, Line: workersBlock.OpenBraceRange.Start.Line}
-	res := ResolveCollectionInstances(rb, workersBlock.Body, "")
+	rb := ResourceBlock{Iterator: "for_each", File: path, Line: block.OpenBraceRange.Start.Line}
+	res := ResolveCollectionInstancesForReview(rb, block.Body)
 
 	if !res.IsCollection || res.Source != SourceStaticLiteral {
 		t.Fatalf("got IsCollection=%v Source=%s, want true/%s", res.IsCollection, res.Source, SourceStaticLiteral)
@@ -104,29 +83,123 @@ func TestResolveCollectionInstances_LiteralForEachObject(t *testing.T) {
 	}
 	for _, want := range []string{"api", "batch"} {
 		if !gotSet[want] {
-			t.Errorf("expected instance key %q in resolved for_each instances, got %v", want, res.Instances)
+			t.Errorf("expected instance key %q, got %v", want, res.Instances)
 		}
 	}
 }
 
-func TestResolveCollectionInstances_UnknownCardinality_NoState(t *testing.T) {
+func TestResolveCollectionInstancesForReview_UnknownCardinality(t *testing.T) {
 	rb := ResourceBlock{Iterator: "for_each", File: "fake.tf", Line: 1}
-	res := ResolveCollectionInstances(rb, &hclsyntax.Body{Attributes: hclsyntax.Attributes{
+	attrs := &hclsyntax.Body{Attributes: hclsyntax.Attributes{
 		"for_each": {Expr: &hclsyntax.ScopeTraversalExpr{}},
-	}}, "")
+	}}
+	res := ResolveCollectionInstancesForReview(rb, attrs)
 
 	if !res.IsCollection {
 		t.Fatal("expected IsCollection=true even when instances are unresolvable")
 	}
-	if res.Error == nil {
-		t.Fatal("expected a non-nil Error for unresolvable for_each")
-	}
-	if res.Error.Code != ErrUnknownCardinality {
-		t.Errorf("got error code %s, want %s", res.Error.Code, ErrUnknownCardinality)
+	if res.Error == nil || res.Error.Code != ErrUnknownCardinality {
+		t.Fatalf("got error %v, want code %s", res.Error, ErrUnknownCardinality)
 	}
 	if len(res.Instances) != 0 {
-		t.Errorf("expected zero instances on unknown cardinality, got %v", res.Instances)
+		t.Errorf("expected zero instances, got %v", res.Instances)
 	}
+}
+
+func TestResolveCollectionInstancesForAgent_LiteralStillWorks(t *testing.T) {
+	path := filepath.Join(fixturesDir(t), "eks-like", "environments", "dev", "main.tf")
+	body := parseBodyForTest(t, path)
+	block := findResourceBlock(t, body, "task_roles")
+	rb := ResourceBlock{Iterator: "count", File: path, Line: block.OpenBraceRange.Start.Line}
+
+	res := ResolveCollectionInstancesForAgent(rb, block.Body, "")
+	if res.Source != SourceStaticLiteral || res.Error != nil {
+		t.Fatalf("got Source=%s Error=%v, want static_literal/nil", res.Source, res.Error)
+	}
+}
+
+func TestResolveCollectionInstancesForAgent_FallsBackToState_Success(t *testing.T) {
+	statePath := filepath.Join(fixturesDir(t), "state", "valid.tfstate.json")
+	rb := ResourceBlock{Type: "aws_ecs_service", Name: "dynamic_workers", Iterator: "for_each", File: "fake.tf", Line: 1}
+	attrs := &hclsyntax.Body{Attributes: hclsyntax.Attributes{
+		"for_each": {Expr: &hclsyntax.ScopeTraversalExpr{}}, // non-literal, forces Tier 2
+	}}
+
+	res := ResolveCollectionInstancesForAgent(rb, attrs, statePath)
+	if res.Error != nil {
+		t.Fatalf("unexpected error: %v", res.Error)
+	}
+	if res.Source != SourceStateFile {
+		t.Errorf("got Source=%s, want %s", res.Source, SourceStateFile)
+	}
+	gotSet := map[string]bool{}
+	for _, i := range res.Instances {
+		gotSet[i] = true
+	}
+	for _, want := range []string{"web", "worker"} {
+		if !gotSet[want] {
+			t.Errorf("expected instance key %q, got %v", want, res.Instances)
+		}
+	}
+}
+
+func TestResolveCollectionInstancesForAgent_StateUnreadable_HardError(t *testing.T) {
+	rb := ResourceBlock{Type: "aws_ecs_service", Name: "dynamic_workers", Iterator: "for_each", File: "fake.tf", Line: 1}
+	attrs := &hclsyntax.Body{Attributes: hclsyntax.Attributes{
+		"for_each": {Expr: &hclsyntax.ScopeTraversalExpr{}},
+	}}
+	res := ResolveCollectionInstancesForAgent(rb, attrs, "/nonexistent/terraform.tfstate")
+	assertAgentHardError(t, res, ErrStateFileUnreadable)
+}
+
+func TestResolveCollectionInstancesForAgent_StateMalformed_HardError(t *testing.T) {
+	statePath := filepath.Join(fixturesDir(t), "state", "malformed.tfstate.json")
+	rb := ResourceBlock{Type: "aws_ecs_service", Name: "dynamic_workers", Iterator: "for_each", File: "fake.tf", Line: 1}
+	attrs := &hclsyntax.Body{Attributes: hclsyntax.Attributes{
+		"for_each": {Expr: &hclsyntax.ScopeTraversalExpr{}},
+	}}
+	res := ResolveCollectionInstancesForAgent(rb, attrs, statePath)
+	assertAgentHardError(t, res, ErrStateFileMalformed)
+}
+
+func TestResolveCollectionInstancesForAgent_ResourceNotInState_HardError(t *testing.T) {
+	statePath := filepath.Join(fixturesDir(t), "state", "missing-resource.tfstate.json")
+	rb := ResourceBlock{Type: "aws_ecs_service", Name: "dynamic_workers", Iterator: "for_each", File: "fake.tf", Line: 1}
+	attrs := &hclsyntax.Body{Attributes: hclsyntax.Attributes{
+		"for_each": {Expr: &hclsyntax.ScopeTraversalExpr{}},
+	}}
+	res := ResolveCollectionInstancesForAgent(rb, attrs, statePath)
+	assertAgentHardError(t, res, ErrResourceNotInState)
+}
+
+// Enforces the Phase 1.5 rule: Agent state failures must never surface
+// as ErrUnknownCardinality — that would misrepresent a blocking
+// failure as a soft, continuable one.
+func assertAgentHardError(t *testing.T, res CollectionResolution, wantCode ErrorCode) {
+	t.Helper()
+	if res.Error == nil {
+		t.Fatal("expected a hard error, got nil")
+	}
+	if res.Error.Code != wantCode {
+		t.Errorf("got error code %s, want %s", res.Error.Code, wantCode)
+	}
+	if res.Error.Code == ErrUnknownCardinality {
+		t.Fatal("Agent path must never silently degrade to ErrUnknownCardinality")
+	}
+	if len(res.Instances) != 0 {
+		t.Errorf("expected zero instances on hard error, got %v", res.Instances)
+	}
+}
+
+func findResourceBlock(t *testing.T, body *hclsyntax.Body, name string) *hclsyntax.Block {
+	t.Helper()
+	for _, b := range body.Blocks {
+		if b.Type == "resource" && len(b.Labels) == 2 && b.Labels[1] == name {
+			return b
+		}
+	}
+	t.Fatalf("resource block %q not found", name)
+	return nil
 }
 
 func parseBodyForTest(t *testing.T, path string) *hclsyntax.Body {
