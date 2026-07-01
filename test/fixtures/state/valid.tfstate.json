@@ -1,0 +1,29 @@
+{
+  "version": 4,
+  "terraform_version": "1.7.0",
+  "resources": [
+    {
+      "module": "",
+      "mode": "managed",
+      "type": "aws_ecs_service",
+      "name": "dynamic_workers",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        { "index_key": "web", "attributes": {} },
+        { "index_key": "worker", "attributes": {} }
+      ]
+    },
+    {
+      "module": "",
+      "mode": "managed",
+      "type": "aws_iam_role",
+      "name": "task_roles",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        { "index_key": 0, "attributes": {} },
+        { "index_key": 1, "attributes": {} },
+        { "index_key": 2, "attributes": {} }
+      ]
+    }
+  ]
+}
