@@ -1,6 +1,9 @@
 package parser
 
-import "github.com/hashicorp/hcl/v2/hclsyntax"
+import (
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+)
 
 type ResolutionSource string
 
@@ -156,7 +159,22 @@ func objectLiteralKeys(expr *hclsyntax.ObjectConsExpr) ([]string, bool) {
 	return out, true
 }
 
+// literalExprToString extracts a string from a literal, a pure-literal
+// template, or an unquoted object key (e.g. `api = {...}`, which HCL
+// parses as ObjectConsKeyExpr wrapping an identifier traversal, not a
+// literal — it stays ambiguous with a variable reference until
+// evaluation, since HCL alone can't tell `api` apart from `var.api`
+// at parse time).
 func literalExprToString(e hclsyntax.Expression) (string, bool) {
+	if keyExpr, ok := e.(*hclsyntax.ObjectConsKeyExpr); ok {
+		if trav, ok := keyExpr.Wrapped.(*hclsyntax.ScopeTraversalExpr); ok && len(trav.Traversal) == 1 {
+			if root, ok := trav.Traversal[0].(hcl.TraverseRoot); ok {
+				return root.Name, true
+			}
+		}
+		return literalExprToString(keyExpr.Wrapped)
+	}
+
 	switch v := e.(type) {
 	case *hclsyntax.LiteralValueExpr:
 		if v.Val.Type().FriendlyName() == "string" {
