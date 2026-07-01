@@ -47,47 +47,68 @@ func WalkRepo(root string, opts WalkOptions) WalkResult {
 			return nil
 		}
 
-		if d.IsDir() {
-			base := d.Name()
-			if base == ".git" || base == "node_modules" {
+		if d.Name() == ".git" || d.Name() == "node_modules" {
+			if d.IsDir() {
 				return filepath.SkipDir
 			}
+			return nil
+		}
 
-			info, statErr := d.Info()
+		// d.IsDir() reports false for a symlink, even one pointing at a
+		// directory — WalkDir classifies entries by their own Lstat
+		// type, not the resolved target's. So the symlink check must
+		// happen before/independent of d.IsDir(), or a symlinked
+		// directory silently skips cycle detection and falls through
+		// to the plain-file branch below, which is exactly what caused
+		// this bug: no error, no recursion, no detection.
+		info, infoErr := d.Info()
+		if infoErr != nil {
+			return nil
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			resolved, evalErr := filepath.EvalSymlinks(path)
+			if evalErr != nil {
+				result.Errors = append(result.Errors, NewParseError(ErrSkippedSymlinkCycle, path, 0, "broken symlink"))
+				return nil
+			}
+			targetInfo, statErr := os.Stat(resolved)
 			if statErr != nil {
 				return nil
 			}
-
-			if info.Mode()&os.ModeSymlink != 0 {
-				resolved, evalErr := filepath.EvalSymlinks(path)
-				if evalErr != nil {
-					result.Errors = append(result.Errors, NewParseError(ErrSkippedSymlinkCycle, path, 0, "broken symlink"))
-					return filepath.SkipDir
-				}
-				targetInfo, lstatErr := os.Lstat(resolved)
-				if lstatErr != nil {
-					return filepath.SkipDir
-				}
-				if visited.isVisited(resolved, targetInfo) {
-					result.Errors = append(result.Errors, NewParseError(ErrSkippedSymlinkCycle, path, 0, "cycle detected: "+resolved))
-					return filepath.SkipDir
-				}
-				visited.markVisited(resolved, targetInfo)
-			} else {
-				visited.markVisited(path, info)
+			if !targetInfo.IsDir() {
+				return nil // symlink to a file: not a cycle risk, and not a dir to recurse into
 			}
+			if visited.isVisited(resolved, targetInfo) {
+				result.Errors = append(result.Errors, NewParseError(ErrSkippedSymlinkCycle, path, 0, "cycle detected: "+resolved))
+				return nil
+			}
+			visited.markVisited(resolved, targetInfo)
+			// Recurse manually into the resolved target. filepath.WalkDir
+			// does not follow symlinks on its own, by design, so we walk
+			// the resolved path ourselves and merge results in.
+			sub := WalkRepo(resolved, WalkOptions{MaxFiles: maxFiles - len(result.Files)})
+			result.Files = append(result.Files, sub.Files...)
+			result.Errors = append(result.Errors, sub.Errors...)
+			if sub.TooLarge {
+				result.TooLarge = true
+				return filepath.SkipAll
+			}
+			return nil
+		}
+
+		if d.IsDir() {
+			visited.markVisited(path, info)
 			return nil
 		}
 
 		if !strings.HasSuffix(d.Name(), ".tf") {
 			return nil
 		}
-
 		if len(result.Files) >= maxFiles {
 			result.TooLarge = true
 			return filepath.SkipAll
 		}
-
 		result.Files = append(result.Files, path)
 		return nil
 	})
