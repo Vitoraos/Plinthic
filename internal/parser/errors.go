@@ -12,12 +12,17 @@ const (
 	ErrRepoTooLarge              ErrorCode = "REPO_TOO_LARGE"
 	ErrPanicRecovered            ErrorCode = "PANIC_RECOVERED"
 	ErrCannotStaticallyDetermine ErrorCode = "CANNOT_STATICALLY_DETERMINE"
-	ErrUnknownCardinality        ErrorCode = "UNKNOWN_CARDINALITY" // Reviewer only, non-blocking
+	ErrUnknownCardinality        ErrorCode = "UNKNOWN_CARDINALITY"
 
-	// Agent-path state resolution — blocking. Caller must not continue past these.
 	ErrStateFileUnreadable ErrorCode = "STATE_FILE_UNREADABLE"
 	ErrStateFileMalformed  ErrorCode = "STATE_FILE_MALFORMED"
 	ErrResourceNotInState  ErrorCode = "RESOURCE_NOT_IN_STATE"
+
+	// ErrUnknownSourceType marks a module source string that doesn't
+	// match any recognized category (git, registry, local, archive).
+	// Non-blocking, same pattern as ErrUnknownCardinality — the module
+	// is still recorded, just without a computable graph key.
+	ErrUnknownSourceType ErrorCode = "UNKNOWN_SOURCE_TYPE"
 )
 
 type ParseError struct {
