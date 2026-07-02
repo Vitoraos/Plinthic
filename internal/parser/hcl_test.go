@@ -132,3 +132,41 @@ func TestParseFile_NonexistentFile(t *testing.T) {
 		t.Errorf("got error code %s, want %s", result.Error.Code, ErrParseFailed)
 	}
 }
+
+func TestParseFile_ModulesFixture_Count(t *testing.T) {
+	path := filepath.Join(fixturesDir(t), "modules", "main.tf")
+	result := ParseFile(path, "dev")
+	if result.Error != nil {
+		t.Fatalf("unexpected parse error: %v", result.Error)
+	}
+	want := 11
+	if len(result.Modules) != want {
+		t.Fatalf("got %d modules, want %d", len(result.Modules), want)
+	}
+}
+
+func TestParseFile_ModulesFixture_CategoryBreakdown(t *testing.T) {
+	path := filepath.Join(fixturesDir(t), "modules", "main.tf")
+	result := ParseFile(path, "dev")
+	if result.Error != nil {
+		t.Fatalf("unexpected parse error: %v", result.Error)
+	}
+
+	counts := map[ModuleSourceCategory]int{}
+	for _, m := range result.Modules {
+		counts[m.Source.Category]++
+	}
+
+	want := map[ModuleSourceCategory]int{
+		ModuleCategoryGit:      4,
+		ModuleCategoryRegistry: 3,
+		ModuleCategoryLocal:    1,
+		ModuleCategoryArchive:  2,
+		ModuleCategoryUnknown:  1,
+	}
+	for cat, wantCount := range want {
+		if counts[cat] != wantCount {
+			t.Errorf("category %s: got %d, want %d", cat, counts[cat], wantCount)
+		}
+	}
+}
