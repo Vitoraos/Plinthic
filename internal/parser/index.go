@@ -3,12 +3,11 @@ package parser
 type IndexResult struct {
 	EnvDetection EnvDetectionResult
 	Resources    []ResourceBlock
+	Modules      []ModuleBlock
 	Errors       []*ParseError
 	TooLarge     bool
 }
 
-// IndexRepo walks a repo, parses every .tf file, detects environments.
-// No single file's failure aborts the rest of the repo.
 func IndexRepo(repoRoot string) IndexResult {
 	walkResult := WalkRepo(repoRoot, WalkOptions{})
 
@@ -32,6 +31,7 @@ func IndexRepo(repoRoot string) IndexResult {
 			continue
 		}
 		result.Resources = append(result.Resources, parseResult.Resources...)
+		result.Modules = append(result.Modules, parseResult.Modules...)
 	}
 
 	return result
