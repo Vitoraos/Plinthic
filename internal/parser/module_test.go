@@ -7,10 +7,6 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
-import (
-	"path/filepath"
-	"testing"
-)
 
 func TestParseModuleSource_GitWithRef(t *testing.T) {
 	info := ParseModuleSource("git::https://github.com/myorg/network-modules.git//vpc?ref=v1.0.0")
