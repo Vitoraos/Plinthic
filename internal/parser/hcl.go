@@ -28,15 +28,15 @@ type AttributeInfo struct {
 	Line     int
 	ExprType ExprType
 	RawExpr  string
-	ForceNew bool // populated later, not by the parser itself
+	ForceNew bool
 }
 
 type ParseFileResult struct {
 	Resources []ResourceBlock
+	Modules   []ModuleBlock
 	Error     *ParseError
 }
 
-// ParseFile never panics out and never hands non-UTF8 input to hclsyntax.
 func ParseFile(path string, environment string) (result ParseFileResult) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -66,14 +66,17 @@ func ParseFile(path string, environment string) (result ParseFileResult) {
 	}
 
 	var resources []ResourceBlock
+	var modules []ModuleBlock
 	for _, block := range body.Blocks {
-		if block.Type != "resource" {
-			continue
+		switch block.Type {
+		case "resource":
+			resources = append(resources, parseResourceBlock(block, path, environment, src))
+		case "module":
+			modules = append(modules, ParseModuleBlock(block, path))
 		}
-		resources = append(resources, parseResourceBlock(block, path, environment, src))
 	}
 
-	return ParseFileResult{Resources: resources}
+	return ParseFileResult{Resources: resources, Modules: modules}
 }
 
 func parseResourceBlock(block *hclsyntax.Block, path string, environment string, src []byte) ResourceBlock {
