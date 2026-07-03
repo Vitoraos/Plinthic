@@ -29,6 +29,10 @@ type AttributeInfo struct {
 	ExprType ExprType
 	RawExpr  string
 	ForceNew bool
+	// Reference is non-nil only when ExprType is direct_ref or
+	// data_ref — the structured target this attribute points to,
+	// used to build CONSUMES_ATTRIBUTE graph edges in Phase 3.
+	Reference *ResourceReference
 }
 
 type ParseFileResult struct {
@@ -103,11 +107,18 @@ func parseResourceBlock(block *hclsyntax.Block, path string, environment string,
 	}
 
 	for name, attr := range block.Body.Attributes {
-		rb.Attributes[name] = AttributeInfo{
+		exprType := classifyExpr(attr.Expr)
+		info := AttributeInfo{
 			Line:     attr.Range().Start.Line,
-			ExprType: classifyExpr(attr.Expr),
+			ExprType: exprType,
 			RawExpr:  extractRawExpr(src, attr),
 		}
+		if exprType == ExprDirectRef || exprType == ExprDataRef {
+			if ref, ok := extractResourceReference(attr.Expr); ok {
+				info.Reference = &ref
+			}
+		}
+		rb.Attributes[name] = info
 	}
 
 	return rb
