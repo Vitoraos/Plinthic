@@ -1,9 +1,9 @@
 package parser
 
 import (
-	"path/filepath"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
@@ -75,14 +75,10 @@ func TestExtractResourceReference_IndexTraversal_NotExtracted(t *testing.T) {
 	}
 }
 
-// parseSingleAttrForTest parses a one-line HCL attribute assignment
-// and returns its *hclsyntax.Attribute, for testing classifyExpr and
-// extractResourceReference in isolation without needing a full
-// resource block or fixture file.
 func parseSingleAttrForTest(t *testing.T, line string) *hclsyntax.Attribute {
 	t.Helper()
 	src := []byte(line + "\n")
-	f, diags := hclsyntax.ParseConfig(src, "test.tf", hclPos1())
+	f, diags := hclsyntax.ParseConfig(src, "test.tf", hcl.Pos{Line: 1, Column: 1})
 	if diags.HasErrors() {
 		t.Fatalf("failed to parse test snippet %q: %v", line, diags)
 	}
@@ -92,8 +88,4 @@ func parseSingleAttrForTest(t *testing.T, line string) *hclsyntax.Attribute {
 		t.Fatalf("no attribute 'x' found in snippet %q", line)
 	}
 	return attr
-}
-
-func hclPos1() hclPosAlias {
-	return hclPosAlias{Line: 1, Column: 1}
 }
